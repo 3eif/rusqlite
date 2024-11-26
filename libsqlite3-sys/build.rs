@@ -101,8 +101,11 @@ mod build_bundled {
         let lib_name = super::lib_name();
 
         // This is just a sanity check, the top level `main` should ensure this.
-        assert!(!(cfg!(feature = "bundled-windows") && !cfg!(feature = "bundled") && !win_target()),
-            "This module should not be used: we're not on Windows and the bundled feature has not been enabled");
+        assert!(
+            !(cfg!(feature = "bundled-windows") && !cfg!(feature = "bundled") && !win_target()),
+            "This module should not be used: we're not on Windows and the bundled feature has not \
+			 been enabled"
+        );
 
         #[cfg(feature = "buildtime_bindgen")]
         {
@@ -121,7 +124,6 @@ mod build_bundled {
         cfg.file(format!("{lib_name}/sqlite3.c"))
             .flag("-DSQLITE_CORE")
             .flag("-DSQLITE_DEFAULT_FOREIGN_KEYS=1")
-            .flag("-DSQLITE_ENABLE_API_ARMOR")
             .flag("-DSQLITE_ENABLE_COLUMN_METADATA")
             .flag("-DSQLITE_ENABLE_DBSTAT_VTAB")
             .flag("-DSQLITE_ENABLE_FTS3")
@@ -133,12 +135,22 @@ mod build_bundled {
             .flag("-DSQLITE_ENABLE_RTREE")
             .flag("-DSQLITE_ENABLE_STAT4")
             .flag("-DSQLITE_SOUNDEX")
-            .flag("-DSQLITE_THREADSAFE=1")
             .flag("-DSQLITE_USE_URI")
             .flag("-DHAVE_USLEEP=1")
             .flag("-DHAVE_ISNAN")
             .flag("-D_POSIX_THREAD_SAFE_FUNCTIONS") // cross compile with MinGW
             .warnings(false);
+
+        if env::var("SQLITE_SYS_BUILD_SINGLE_THREADED_FASTEST").as_deref() == Ok("yesplease") {
+            cfg.flag("-DSQLITE_THREADSAFE=2")
+                .flag("-DSQLITE_DEFAULT_MEMSTATUS=0")
+                .flag("-DSQLITE_USE_ALLOCA")
+                .flag("-DSQLITE_OMIT_PROGRESS_CALLBACK")
+                .flag("-DSQLITE_OMIT_AUTOINIT");
+        } else {
+            cfg.flag("-DSQLITE_THREADSAFE=1")
+                .flag("-DSQLITE_ENABLE_API_ARMOR");
+        }
 
         if cfg!(feature = "bundled-sqlcipher") {
             cfg.flag("-DSQLITE_HAS_CODEC").flag("-DSQLITE_TEMP_STORE=2");
@@ -161,7 +173,10 @@ mod build_bundled {
                 (lib_dir, inc_dir) => match find_openssl_dir(&host, &target) {
                     None => {
                         if is_windows && !cfg!(feature = "bundled-sqlcipher-vendored-openssl") {
-                            panic!("Missing environment variable OPENSSL_DIR or OPENSSL_DIR is not set")
+                            panic!(
+                                "Missing environment variable OPENSSL_DIR or OPENSSL_DIR is not \
+								 set"
+                            )
                         } else {
                             (vec![PathBuf::new()], PathBuf::new())
                         }
@@ -373,9 +388,10 @@ mod build_linked {
     #[cfg(feature = "vcpkg")]
     extern crate vcpkg;
 
-    use super::{bindings, env_prefix, is_compiler, lib_name, win_target, HeaderLocation};
     use std::env;
     use std::path::Path;
+
+    use super::{bindings, env_prefix, is_compiler, lib_name, win_target, HeaderLocation};
 
     pub fn main(_out_dir: &str, out_path: &Path) {
         let header = find_sqlite();
@@ -481,9 +497,9 @@ mod build_linked {
 #[cfg(not(feature = "buildtime_bindgen"))]
 #[allow(dead_code)]
 mod bindings {
-    use super::HeaderLocation;
-
     use std::path::Path;
+
+    use super::HeaderLocation;
 
     static PREBUILT_BINDGENS: &[&str] = &["bindgen_3.14.0"];
 
@@ -495,10 +511,11 @@ mod bindings {
 
 #[cfg(feature = "buildtime_bindgen")]
 mod bindings {
-    use super::HeaderLocation;
+    use std::path::Path;
+
     use bindgen::callbacks::{IntKind, ParseCallbacks};
 
-    use std::path::Path;
+    use super::HeaderLocation;
     #[derive(Debug)]
     struct SqliteTypeChooser;
 
