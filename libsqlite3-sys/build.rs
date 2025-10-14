@@ -141,7 +141,7 @@ mod build_bundled {
             .flag("-DSQLITE_USE_URI")
             .flag("-DHAVE_USLEEP=1")
             .flag("-DHAVE_ISNAN")
-	    .flag("-DSQLITE_THREADSAFE=1")
+            .flag("-DSQLITE_THREADSAFE=1")
             .flag("-D_POSIX_THREAD_SAFE_FUNCTIONS") // cross compile with MinGW
             .warnings(false);
 
