@@ -3,21 +3,25 @@
 //! Port of C [generate series
 //! "function"](http://www.sqlite.org/cgi/src/finfo?name=ext/misc/series.c):
 //! `https://www.sqlite.org/series.html`
+use std::ffi::c_int;
 use std::marker::PhantomData;
-use std::os::raw::c_int;
 
 use crate::ffi;
 use crate::types::Type;
 use crate::vtab::{
-    eponymous_only_module, Context, IndexConstraintOp, IndexInfo, VTab, VTabConfig, VTabConnection,
-    VTabCursor, Values,
+    eponymous_only_module, Context, Filters, IndexConstraintOp, IndexInfo, VTab, VTabConfig,
+    VTabConnection, VTabCursor,
 };
-use crate::{Connection, Error, Result};
+use crate::{error::error_from_sqlite_code, Connection, Result};
 
 /// Register the `generate_series` module.
 pub fn load_module(conn: &Connection) -> Result<()> {
     let aux: Option<()> = None;
-    conn.create_module("generate_series", eponymous_only_module::<SeriesTab>(), aux)
+    conn.create_module(
+        c"generate_series",
+        eponymous_only_module::<SeriesTab>(),
+        aux,
+    )
 }
 
 // Column numbers
@@ -108,10 +112,7 @@ unsafe impl<'vtab> VTab<'vtab> for SeriesTab {
             debug_assert_eq!(Ok("BINARY"), info.collation(*j));
         }
         if !(unusable_mask & !idx_num).is_empty() {
-            return Err(Error::SqliteFailure(
-                ffi::Error::new(ffi::SQLITE_CONSTRAINT),
-                None,
-            ));
+            return Err(error_from_sqlite_code(ffi::SQLITE_CONSTRAINT, None));
         }
         if idx_num.contains(QueryPlanFlags::BOTH) {
             // Both start= and stop= boundaries are available.
@@ -193,9 +194,9 @@ impl SeriesTabCursor<'_> {
         }
     }
 }
-#[expect(clippy::comparison_chain)]
+
 unsafe impl VTabCursor for SeriesTabCursor<'_> {
-    fn filter(&mut self, idx_num: c_int, _idx_str: Option<&str>, args: &Values<'_>) -> Result<()> {
+    fn filter(&mut self, idx_num: c_int, _idx_str: Option<&str>, args: &Filters<'_>) -> Result<()> {
         let mut idx_num = QueryPlanFlags::from_bits_truncate(idx_num);
         let mut i = 0;
         if idx_num.contains(QueryPlanFlags::START) {

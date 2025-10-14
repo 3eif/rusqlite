@@ -1,6 +1,9 @@
 use std::env;
 use std::path::Path;
 
+#[cfg(all(feature = "loadable_extension", feature = "preupdate_hook"))]
+compile_error!("feature \"loadable_extension\" and feature \"preupdate_hook\" cannot be enabled at the same time");
+
 /// Tells whether we're building for Windows. This is more suitable than a plain
 /// `cfg!(windows)`, since the latter does not properly handle cross-compilation
 ///
@@ -143,16 +146,22 @@ mod build_bundled {
             .warnings(false);
 
         if env::var("SQLITE_SYS_BUILD_SINGLE_THREADED_FASTEST").as_deref() == Ok("yesplease") {
-            cfg.flag("-DSQLITE_DEFAULT_MEMSTATUS=0")
+            cfg.flag("-DSQLITE_THREADSAFE=2")
+                .flag("-DSQLITE_DEFAULT_MEMSTATUS=0")
                 .flag("-DSQLITE_USE_ALLOCA")
                 .flag("-DSQLITE_OMIT_PROGRESS_CALLBACK")
                 .flag("-DSQLITE_OMIT_AUTOINIT");
         } else {
-            cfg.flag("-DSQLITE_ENABLE_API_ARMOR");
+            cfg.flag("-DSQLITE_THREADSAFE=1")
+                .flag("-DSQLITE_ENABLE_API_ARMOR");
         }
 
         if cfg!(feature = "bundled-sqlcipher") {
-            cfg.flag("-DSQLITE_HAS_CODEC").flag("-DSQLITE_TEMP_STORE=2");
+            cfg.flag("-DSQLITE_HAS_CODEC")
+                .flag("-DSQLITE_TEMP_STORE=2")
+                .flag("-DSQLITE_EXTRA_INIT=sqlcipher_extra_init")
+                .flag("-DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown")
+                .flag("-DHAVE_STDINT_H=1");
 
             let target = env::var("TARGET").unwrap();
             let host = env::var("HOST").unwrap();
@@ -246,7 +255,10 @@ mod build_bundled {
 
         // If explicitly requested: enable static linking against the Microsoft Visual
         // C++ Runtime to avoid dependencies on vcruntime140.dll and similar libraries.
-        if cfg!(target_feature = "crt-static") && is_compiler("msvc") {
+        if env::var("CARGO_CFG_TARGET_FEATURE")
+            .is_ok_and(|v| v.split(',').any(|tf| tf == "crt-static"))
+            && is_compiler("msvc")
+        {
             cfg.static_crt(true);
         }
 
@@ -269,6 +281,9 @@ mod build_bundled {
         }
         if cfg!(feature = "unlock_notify") {
             cfg.flag("-DSQLITE_ENABLE_UNLOCK_NOTIFY");
+        }
+        if cfg!(feature = "column_metadata") {
+            cfg.flag("-DSQLITE_ENABLE_COLUMN_METADATA");
         }
         if cfg!(feature = "preupdate_hook") {
             cfg.flag("-DSQLITE_ENABLE_PREUPDATE_HOOK");
@@ -445,7 +460,11 @@ mod build_linked {
             let pkgconfig_path = Path::new(&dir).join("pkgconfig");
             env::set_var("PKG_CONFIG_PATH", pkgconfig_path);
             #[cfg(not(feature = "loadable_extension"))]
-            if pkg_config::Config::new().probe(link_lib).is_err() {
+            if pkg_config::Config::new()
+                .atleast_version("3.14.0")
+                .probe(link_lib)
+                .is_err()
+            {
                 // Otherwise just emit the bare minimum link commands.
                 println!("cargo:rustc-link-lib={}={link_lib}", find_link_mode());
                 println!("cargo:rustc-link-search={dir}");
@@ -459,6 +478,7 @@ mod build_linked {
 
         // See if pkg-config can do everything for us.
         if let Ok(mut lib) = pkg_config::Config::new()
+            .atleast_version("3.14.0")
             .print_system_libs(false)
             .probe(link_lib)
         {
@@ -549,6 +569,7 @@ mod bindings {
         let mut bindings = bindgen::builder()
             .default_macro_constant_type(bindgen::MacroTypeVariation::Signed)
             .disable_nested_struct_naming()
+            .generate_cstr(true)
             .trust_clang_mangling(false)
             .header(header.clone())
             .parse_callbacks(Box::new(SqliteTypeChooser));
@@ -634,7 +655,7 @@ mod bindings {
         let bindings = bindings
             .layout_tests(false)
             .generate()
-            .unwrap_or_else(|_| panic!("could not run bindgen on header {}", header));
+            .unwrap_or_else(|_| panic!("could not run bindgen on header {header}"));
 
         #[cfg(feature = "loadable_extension")]
         {
@@ -645,12 +666,12 @@ mod bindings {
             let mut output = String::from_utf8(output).expect("bindgen output was not UTF-8?!");
             super::loadable_extension::generate_functions(&mut output);
             std::fs::write(out_path, output.as_bytes())
-                .unwrap_or_else(|_| panic!("Could not write to {:?}", out_path));
+                .unwrap_or_else(|_| panic!("Could not write to {out_path:?}"));
         }
         #[cfg(not(feature = "loadable_extension"))]
         bindings
             .write_to_file(out_path)
-            .unwrap_or_else(|_| panic!("Could not write to {:?}", out_path));
+            .unwrap_or_else(|_| panic!("Could not write to {out_path:?}"));
     }
 }
 
