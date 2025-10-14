@@ -141,17 +141,18 @@ mod build_bundled {
             .flag("-DSQLITE_USE_URI")
             .flag("-DHAVE_USLEEP=1")
             .flag("-DHAVE_ISNAN")
-	    .flag("-DSQLITE_THREADSAFE=1")
             .flag("-D_POSIX_THREAD_SAFE_FUNCTIONS") // cross compile with MinGW
             .warnings(false);
 
         if env::var("SQLITE_SYS_BUILD_SINGLE_THREADED_FASTEST").as_deref() == Ok("yesplease") {
-            cfg.flag("-DSQLITE_DEFAULT_MEMSTATUS=0")
+            cfg.flag("-DSQLITE_THREADSAFE=2")
+                .flag("-DSQLITE_DEFAULT_MEMSTATUS=0")
                 .flag("-DSQLITE_USE_ALLOCA")
                 .flag("-DSQLITE_OMIT_PROGRESS_CALLBACK")
                 .flag("-DSQLITE_OMIT_AUTOINIT");
         } else {
-            cfg.flag("-DSQLITE_ENABLE_API_ARMOR");
+            cfg.flag("-DSQLITE_THREADSAFE=1")
+                .flag("-DSQLITE_ENABLE_API_ARMOR");
         }
 
         if cfg!(feature = "bundled-sqlcipher") {
